@@ -59,7 +59,7 @@ class CortexM4(ARM):
             fp = ""
         else:
             fp = "+nofp"
-        super().__init__("cortex-m4" + fp, floating_point=floating_point, floating_point_unit="vfp4sp")
+        super().__init__("cortex-m4" + fp, floating_point=floating_point, floating_point_unit="fpv4-sp-d16")
 
 class CortexM7(ARM):
     def __init__(self, floating_point: str):
