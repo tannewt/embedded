@@ -8,12 +8,11 @@ class ARM(embedded.CPU):
         self.mcpu = mcpu
         self.floating_point = floating_point
         self.floating_point_unit = floating_point_unit
-        self.unique_id = mcpu + "f" if floating_point else ""
+        self.unique_id = mcpu + ("f" if floating_point else "")
 
     def get_arch_cflags(self, compiler: embedded.Compiler) -> list[str]:
         flags = ["-mthumb"]
         floating_point_unit = self.floating_point_unit
-        print(compiler)
         assert(compiler is not None)
         if isinstance(compiler, embedded.compiler.Clang):
             flags.append("--target=arm-none-eabi")
@@ -33,9 +32,7 @@ class ARM(embedded.CPU):
     def from_pdsc(description: dict) -> Optional[embedded.CPU]:
         if "core" in description:
             core = description["core"]
-            print(core)
             if core == "CortexM0Plus":
-                print("cm0")
                 return CortexM0Plus()
             elif core == "CortexM4":
                 return CortexM4(description["fpu"])
