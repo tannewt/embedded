@@ -1,6 +1,6 @@
 import embedded
 import inspect
-from . import run_command
+from . import run_command, capture_caller_directory
 from embedded.cpu import arm, riscv
 import pathlib
 
@@ -32,7 +32,8 @@ c_args = [{cflags}]
 c_link_args = [{link_flags}]
 """
 
-async def setup(source_dir, build_dir, cpu: embedded.CPU, compiler: embedded.Compiler, reconfigure=True, options=[]):
+@capture_caller_directory
+async def setup(source_dir, build_dir, cpu: embedded.CPU, compiler: embedded.Compiler, reconfigure=True, options=[], caller_directory = None):
     cmd = ["meson", "setup"]
     if reconfigure:
         cmd.append("--reconfigure")
@@ -53,7 +54,4 @@ async def setup(source_dir, build_dir, cpu: embedded.CPU, compiler: embedded.Com
     cmd.append(source_dir)
     cmd.append(build_dir)
 
-    caller_frame = inspect.stack()[1].filename
-    working_directory = pathlib.Path(caller_frame).parent
-
-    await run_command(cmd, working_directory=working_directory)
+    await run_command(cmd, caller_directory=caller_directory)

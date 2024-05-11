@@ -5,11 +5,19 @@ import inspect
 import logging
 import os
 import pathlib
+import sys
+import warnings
 
 import embedded
 from embedded import build
 from embedded import cpu
 from embedded import microcontroller
+
+async def run_eager(coro):
+    """Run the coroutine with an eager task factory so that functions can capture the parent task."""
+    loop = asyncio.get_event_loop()
+    loop.set_task_factory(asyncio.eager_task_factory)
+    await coro
 
 def run(function):
     function_args = []
@@ -44,7 +52,11 @@ def run(function):
             parser.add_argument("--" + param.name, type=pathlib.Path, help="Path to " + param.name, required=param.default == inspect.Parameter.empty)
             function_args.append(param.name)
 
-        # print(param, type(param), param.annotation)
+        if param.annotation == list[str]:
+            parser.add_argument(param.name, type=str, nargs="+", help="List of " + param.name)
+            function_args.append(param.name)
+
+        #print(param, type(param), param.annotation)
 
     cli_args = parser.parse_args()
 
@@ -70,4 +82,9 @@ def run(function):
             if isinstance(function_args[i], pathlib.Path):
                 function_args[i] = function_args[i].resolve()
 
-    asyncio.run(function(*function_args))
+    warnings.simplefilter("ignore")
+    try:
+        asyncio.run(run_eager(function(*function_args)))
+    except Exception as e:
+        # Swallow any exception
+        sys.exit(1)

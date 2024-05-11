@@ -17,7 +17,8 @@ class ARM(embedded.CPU):
         if isinstance(compiler, embedded.compiler.Clang):
             flags.append("--target=arm-none-eabi")
             flags.append(f"-mcpu={self.mcpu}")
-            flags.append(f"-mfpu={floating_point_unit}")
+            if floating_point_unit:
+                flags.append(f"-mfpu={floating_point_unit}")
         else:
             flags.append(f"-mcpu={self.mcpu}")
             if self.floating_point_unit is None:

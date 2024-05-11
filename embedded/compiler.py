@@ -1,4 +1,11 @@
+import inspect
+import pathlib
+import asyncio
+
 from . import Compiler
+from embedded import build
+
+cwd = pathlib.Path.cwd()
 
 class GCC(Compiler):
     def __init__(self):
@@ -13,3 +20,10 @@ class Clang(Compiler):
         self.cpp_compiler = "clang++"
         self.ar = "llvm-ar"
         self.strip = "llvm-strip"
+
+    @build.capture_caller_directory
+    async def preprocess(self, source_file: pathlib.Path, output_file: pathlib.Path, flags: list[pathlib.Path], caller_directory=None):
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        await build.run_command([self.c_compiler, "-E", "-MMD", "-c", source_file, *flags, "-o", output_file], description=f"Preprocess {source_file.relative_to(cwd)} -> {output_file.relative_to(cwd)}", working_directory=caller_directory)
+        #     command="{compiler} -E -MMD -c {source_files} {module_flags} {qstr_flags} {circuitpython_flags} {port_flags} -o {build_files}",
+
