@@ -83,8 +83,8 @@ def run(function):
                 function_args[i] = function_args[i].resolve()
 
     warnings.simplefilter("ignore")
-    try:
-        asyncio.run(run_eager(function(*function_args)))
-    except Exception as e:
+    #try:
+    asyncio.run(run_eager(function(*function_args)))
+    #except Exception as e:
         # Swallow any exception
-        sys.exit(1)
+        #sys.exit(1)

@@ -3,15 +3,27 @@ import inspect
 import logging
 import pathlib
 import shlex
+import time
+import atexit
+import json
 
 logger = logging.getLogger(__name__)
 
 shared_semaphore = None
 
+trace_entries = []
+def save_trace():
+    with open("trace.json", "w") as f:
+        json.dump(trace_entries, f)
+
+atexit.register(save_trace)
+
 def init(job_count=1):
     global shared_semaphore
     shared_semaphore = asyncio.BoundedSemaphore(job_count)
 
+    global tracks
+    tracks = list(reversed(range(job_count)))
 
 def capture_caller_directory(function):
     def wrapper(*args, **kwargs):
@@ -39,13 +51,18 @@ async def run_command(command, description=None, caller_directory=None, working_
         command = " ".join(command)
 
     async with shared_semaphore:
+        track = tracks.pop()
+        start_time = time.perf_counter_ns() // 1000
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_directory)
 
-    stdout, stderr = await process.communicate()
+        stdout, stderr = await process.communicate()
+        end_time = time.perf_counter_ns() // 1000
+        trace_entries.append({"name": command if not description else description, "ph": "X", "pid": 0, "tid": track, "ts": start_time, "dur": end_time - start_time})
+        tracks.append(track)
 
     working_directory = working_directory.relative_to(pathlib.Path.cwd())
     command = f"{working_directory}$ {command}"
