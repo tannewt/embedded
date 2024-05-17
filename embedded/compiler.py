@@ -25,5 +25,9 @@ class Clang(Compiler):
     async def preprocess(self, source_file: pathlib.Path, output_file: pathlib.Path, flags: list[pathlib.Path], caller_directory=None):
         output_file.parent.mkdir(parents=True, exist_ok=True)
         await build.run_command([self.c_compiler, "-E", "-MMD", "-c", source_file, *flags, "-o", output_file], description=f"Preprocess {source_file.relative_to(cwd)} -> {output_file.relative_to(cwd)}", working_directory=caller_directory)
-        #     command="{compiler} -E -MMD -c {source_files} {module_flags} {qstr_flags} {circuitpython_flags} {port_flags} -o {build_files}",
 
+    @build.capture_caller_directory
+    async def compile(self, cpu, source_file: pathlib.Path, output_file: pathlib.Path, flags: list[pathlib.Path], caller_directory=None):
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        cpu_flags = cpu.get_arch_cflags(self)
+        await build.run_command([self.c_compiler, *cpu_flags, "-MMD", "-c", source_file, *flags, "-o", output_file], description=f"Compile {source_file.relative_to(cwd)} -> {output_file.relative_to(cwd)}", working_directory=caller_directory)
