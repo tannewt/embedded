@@ -13,6 +13,8 @@ from embedded import build
 from embedded import cpu
 from embedded import microcontroller
 
+logger = logging.getLogger(__name__)
+
 async def run_eager(coro):
     """Run the coroutine with an eager task factory so that functions can capture the parent task."""
     loop = asyncio.get_event_loop()
@@ -76,6 +78,14 @@ def run(function):
                 function_args[i] = cpu.get_cpu_from_name(cli_args.cpu)
             elif cli_args.mcu:
                 cpu = microcontroller.get_cpu_from_mcu(cli_args.mcu)
+                function_args[i] = cpu
+        elif farg == "cpu":
+            if cli_args.mcu:
+                mcus = microcontroller.get_mcus_from_string(cli_args.mcu)
+                if len(mcus) > 1:
+                    for mcu in mcus:
+                        logger.warning(mcu)
+                    raise ValueError("Multiple MCUs found")
                 function_args[i] = cpu
         else:
             function_args[i] = getattr(cli_args, farg)
