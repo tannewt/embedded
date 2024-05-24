@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def run_eager(coro):
     """Run the coroutine with an eager task factory so that functions can capture the parent task."""
     loop = asyncio.get_event_loop()
-    loop.set_task_factory(asyncio.eager_task_factory)
+    # loop.set_task_factory(asyncio.eager_task_factory)
     await coro
 
 def run(function):

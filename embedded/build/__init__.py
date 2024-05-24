@@ -82,3 +82,25 @@ async def run_command(command, description=None, caller_directory=None, working_
             logger.warning("No output")
         logger.error(command)
         raise RuntimeError()
+
+async def run_function(function, positional, named, description=None,):
+    async with shared_semaphore:
+        track = tracks.pop()
+        start_time = time.perf_counter_ns() // 1000
+        result = await asyncio.to_thread(function, *positional, **named)
+
+        end_time = time.perf_counter_ns() // 1000
+        trace_entries.append({"name": str(function) if not description else description, "ph": "X", "pid": 0, "tid": track, "ts": start_time, "dur": end_time - start_time})
+        tracks.append(track)
+
+    if description:
+        logger.info(description)
+        logger.debug(function)
+    else:
+        logger.info(function)
+    return result
+
+def run_in_thread(function):
+    def wrapper(*positional, **named):
+        return run_function(function, positional, named)
+    return wrapper

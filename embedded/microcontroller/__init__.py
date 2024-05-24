@@ -1,4 +1,5 @@
 import logging
+from embedded import build
 from lxml import etree
 from cmsis_svd.parser import SVDParser
 try:
@@ -17,58 +18,68 @@ class Microcontroller:
         self.cpu = cpu
         self.pack = pack
         self.svd = svd_filename
-
-    async def generate_c_header(self, target_peripheral, output_file):
         with self.pack.open(self.svd) as f:
             parser = SVDParser(etree.parse(f))
-        device = parser.get_device()
-        # print(device.cpu, device.cpu.device_num_interrupts)
-        for peripheral in device.peripherals:
-            for i in peripheral.interrupts:
-                print(" ",i.name, i.value)
+        self.device = parser.get_device()
+
+    @build.run_in_thread
+    def generate_c_header(self, target_peripheral, output_file):
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with output_file.open("w") as output:
-            output.write(f"#pragma once\n\n#include <stdbool.h>\n#include <stdint.h>\n\n")
+            output.write("#pragma once\n\n#include <stdbool.h>\n#include <stdint.h>\n\n")
             instances = []
-            for peripheral in device.peripherals:
+            for peripheral in self.device.peripherals:
                 if target_peripheral != peripheral.group_name and target_peripheral != peripheral.name and target_peripheral != peripheral.derived_from:
                     continue
-                print("%s %s %s @ 0x%08x" % (peripheral.group_name, peripheral.name, peripheral.derived_from, peripheral.base_address))
                 instances.append(f"{peripheral.group_name}_Type* {peripheral.name} = ({peripheral.group_name}_Type*) 0x{peripheral.base_address:08x};\n")
+                instances.append(f"{peripheral.group_name}_Raw_Type* {peripheral.name}_REGS = ({peripheral.group_name}_Raw_Type*) 0x{peripheral.base_address:08x};\n")
                 if peripheral.derived_from is not None:
                     continue
                 registers = []
+                raw_registers = []
                 for r in peripheral.registers:
-                    print(" ", r.name, r.address_offset, r.size, r.access, r.description)
-                    output.write(f"// {r.description}\n")
-                    output.write(f"typedef struct _{r.name}_Type {{\n")
-                    current_offset = 1
+                    r_description = r.description
+                    if "\n" in r_description:
+                        r_description = " ".join([x.strip() for x in r_description.split("\n")])
                     fields = list(r.fields)
-                    fields.sort(key=lambda x: x.bit_offset)
-                    for f in fields:
-                        description = f.description
-                        if "\n" in description:
-                            description = " ".join([x.strip() for x in description.split("\n")])
-                        if current_offset < f.bit_offset:
-                            output.write(f"{INDENT}int reserved_{current_offset}: {f.bit_offset - current_offset};\n")
-                            
-                        current_offset = f.bit_offset + f.bit_width
-                        if f.bit_width == 1:
-                            field_type = "bool"
-                        elif f.bit_width <= 8:
-                            field_type = "uint8_t"
-                        else:
-                            field_type = "int"
-                        output.write(f"{INDENT}{field_type} {f.name}: {f.bit_width}; // {f.bit_offset} {description}\n")
-                        print("   ", f.name, f.bit_offset, f.access or r.access, f.bit_width, f.enumerated_values, repr(description))
-                    output.write(f"}} {r.name}_Type;\n\n")
-                    registers.append(f"{INDENT}// {r.description}\n{INDENT}//\n")
-                    registers.append(f"{INDENT}// Address offset: {r.address_offset}\n")
-                    registers.append(f"{INDENT}{r.name}_Type {r.name};\n\n")
+                    reg_comment = (f"{INDENT}// {r_description}\n{INDENT}//\n",
+                                   f"{INDENT}// Address offset: {r.address_offset}\n")
+                    registers.extend(reg_comment)
+                    raw_registers.extend(reg_comment)
+                    if len(fields) == 1 and fields[0].bit_offset == 0 and fields[0].bit_width == r.size:
+                        registers.append(f"{INDENT}uint32_t {r.name};\n\n")
+                        raw_registers.append(f"{INDENT}uint32_t {r.name};\n\n")
+                    else:
+                        current_offset = 1
+                        output.write(f"// {r_description}\n")
+                        output.write(f"typedef struct _{peripheral.group_name}_{r.name}_Type {{\n")
+                        fields.sort(key=lambda x: x.bit_offset)
+                        for f in fields:
+                            description = f.description
+                            if "\n" in description:
+                                description = " ".join([x.strip() for x in description.split("\n")])
+                            if current_offset < f.bit_offset:
+                                output.write(f"{INDENT}int reserved_{current_offset}: {f.bit_offset - current_offset};\n")
+                                
+                            current_offset = f.bit_offset + f.bit_width
+                            if f.bit_width == 1:
+                                field_type = "bool"
+                            elif f.bit_width <= 8:
+                                field_type = "uint8_t"
+                            else:
+                                field_type = "int"
+                            output.write(f"{INDENT}{field_type} {f.name}: {f.bit_width}; // {f.bit_offset} {description}\n")
+                        output.write(f"}} {peripheral.group_name}_{r.name}_Type;\n\n")
+                        registers.append(f"{INDENT}{peripheral.group_name}_{r.name}_Type {r.name};\n\n")
+                        raw_registers.append(f"{INDENT}uint32_t {r.name};\n\n")
                 output.write(f"typedef struct _{peripheral.group_name}_Type {{\n")
                 for r in registers:
                     output.write(r)
                 output.write(f"}} {peripheral.group_name}_Type;\n\n")
+                output.write(f"typedef struct _{peripheral.group_name}_Raw_Type {{\n")
+                for r in raw_registers:
+                    output.write(r)
+                output.write(f"}} {peripheral.group_name}_Raw_Type;\n\n")
             for i in instances:
                 output.write(i)
 
