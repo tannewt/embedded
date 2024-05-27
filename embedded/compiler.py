@@ -42,6 +42,7 @@ class Clang(Compiler):
         cpu_flags = cpu.get_arch_cflags(self)
         link_flags = []
         if print_memory_use:
+            link_flags.append("-fuse-ld=bfd") # if using clang/LLVM
             link_flags.append("-Wl,--print-memory-usage")
         if output_map_file:
             link_flags.append("-Wl,-Map=" + str(output_file.with_suffix(".elf.map").relative_to(caller_directory)))
