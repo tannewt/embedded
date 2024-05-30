@@ -5,10 +5,14 @@ from cmsis_svd.parser import SVDParser
 try:
     import cmsis_pack_manager as cmsis_packs
     from embedded.cpu import arm
+    cmsis_cache = None
 except ImportError:
     cmsis_packs = None
 
 logger = logging.getLogger(__name__)
+
+KB = 1024
+MB = 1024 * 1024
 
 INDENT = "    "
 
@@ -83,6 +87,74 @@ class Microcontroller:
             for i in instances:
                 output.write(i)
 
+    @build.run_in_thread
+    def generate_linker_script(self, output_file, flash_start_offset=0):
+        global cmsis_cache
+        if cmsis_cache is None:
+            cmsis_cache = cmsis_packs.Cache(True, False)
+
+        device_info = cmsis_cache.index[self.part]
+        with output_file.open("w") as output_file:
+            output_file.write("MEMORY {\n")
+            # Nonvolatile memory (nvm) is where everything stored at start up.
+            nvm = None
+            # Volatile memory we can write
+            ram = None
+            for name in device_info["memories"]:
+                mem_info = device_info["memories"][name]
+                print(name, mem_info)
+                start = mem_info["start"] + flash_start_offset
+                size = mem_info["size"]
+                if size % MB == 0:
+                    size = f"{size // MB}M"
+                elif size % KB == 0:
+                    size = f"{size // KB}K"
+                else:
+                    size = f"0x{size:x}"
+                if mem_info["access"]["execute"] and mem_info["startup"]:
+                    nvm = name
+                if mem_info["access"]["write"]:
+                    ram = name
+                attrs = []
+                if mem_info["access"]["read"]:
+                    attrs.append("r")
+                if mem_info["access"]["write"]:
+                    attrs.append("w")
+                if mem_info["access"]["execute"]:
+                    attrs.append("x")
+                attrs = "".join(attrs)
+                output_file.write(f"{INDENT}{name} ({attrs}) : ORIGIN = 0x{start:08x}, LENGTH = {size}\n")
+            output_file.write("}\n")
+
+            output_file.write("SECTIONS {\n")
+            output_file.write(f"{INDENT}.text : {{\n")
+            output_file.write(f"{INDENT}{INDENT}*(.vector_table)\n")
+            output_file.write(f"{INDENT}{INDENT}*(.text)\n")
+            output_file.write(f"{INDENT}{INDENT}*(.text*)\n")
+            output_file.write(f"}} > {nvm}\n")
+
+            output_file.write(f"{INDENT}.rodata : {{\n")
+            output_file.write(f"{INDENT}{INDENT}*(.rodata)\n")
+            output_file.write(f"{INDENT}{INDENT}*(.rodata*)\n")
+            output_file.write(f"}} > {nvm}\n")
+
+            output_file.write(f"{INDENT}.data : {{\n")
+            output_file.write(f"{INDENT}{INDENT}*(.data)\n")
+            output_file.write(f"{INDENT}{INDENT}*(.data*)\n")
+            output_file.write(f"}} > {nvm} AT> {ram} \n")
+            output_file.write("_ld_data_start = ADDR(.data);\n")
+            output_file.write("_ld_data_nvm_start = LOADADDR(.data);\n")
+            output_file.write("_ld_data_size = SIZEOF(.data);\n")
+
+            output_file.write(f"{INDENT}.bss : {{\n")
+            output_file.write(f"{INDENT}{INDENT}*(.bss);\n")
+            output_file.write(f"{INDENT}{INDENT}*(.bss*);\n")
+            output_file.write(f"}} > {ram} \n")
+            output_file.write("_ld_bss_start = ADDR(.bss);\n")
+            output_file.write("_ld_bss_size = SIZEOF(.bss);\n")
+
+            output_file.write("}\n")
+
     def __str__(self):
         return f"{self.part} {self.cpu} {self.pack} {self.svd}"
 
@@ -90,11 +162,14 @@ class Microcontroller:
         return f"Microcontroller({self.part}, {self.cpu}, {self.pack}, {self.svd})"
 
 def get_mcus_from_string(substr) -> list[Microcontroller]:
+    global cmsis_cache
     if not cmsis_packs:
         return []
 
+    if cmsis_cache is None:
+        cmsis_cache = cmsis_packs.Cache(True, False)
+
     mcus = []
-    cmsis_cache = cmsis_packs.Cache(True, False)
     for part in cmsis_cache.index.keys():
         if substr in part:
             device_info = cmsis_cache.index[part]
