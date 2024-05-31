@@ -42,20 +42,27 @@ class Microcontroller:
                     continue
                 registers = []
                 raw_registers = []
+                register_offset = 0
                 for r in peripheral.registers:
+                    while register_offset < r.address_offset:
+                        registers.append(f"{INDENT}uint32_t reserved_{register_offset};\n")
+                        raw_registers.append(f"{INDENT}uint32_t reserved_{register_offset};\n")
+                        register_offset += 4
+                    
                     r_description = r.description
                     if "\n" in r_description:
                         r_description = " ".join([x.strip() for x in r_description.split("\n")])
                     fields = list(r.fields)
                     reg_comment = (f"{INDENT}// {r_description}\n{INDENT}//\n",
-                                   f"{INDENT}// Address offset: {r.address_offset}\n")
+                                   f"{INDENT}// Address offset: {r.address_offset} Size: {r.size} bits\n")
                     registers.extend(reg_comment)
                     raw_registers.extend(reg_comment)
+                    register_offset += r.size // 8 + (1 if r.size % 8 else 0)
                     if len(fields) == 1 and fields[0].bit_offset == 0 and fields[0].bit_width == r.size:
                         registers.append(f"{INDENT}uint32_t {r.name};\n\n")
                         raw_registers.append(f"{INDENT}uint32_t {r.name};\n\n")
                     else:
-                        current_offset = 1
+                        field_offset = 1
                         output.write(f"// {r_description}\n")
                         output.write(f"typedef struct _{peripheral.group_name}_{r.name}_Type {{\n")
                         fields.sort(key=lambda x: x.bit_offset)
@@ -63,10 +70,10 @@ class Microcontroller:
                             description = f.description
                             if "\n" in description:
                                 description = " ".join([x.strip() for x in description.split("\n")])
-                            if current_offset < f.bit_offset:
-                                output.write(f"{INDENT}int reserved_{current_offset}: {f.bit_offset - current_offset};\n")
+                            if field_offset < f.bit_offset:
+                                output.write(f"{INDENT}int reserved_{field_offset}: {f.bit_offset - field_offset};\n")
                                 
-                            current_offset = f.bit_offset + f.bit_width
+                            field_offset = f.bit_offset + f.bit_width
                             if f.bit_width == 1:
                                 field_type = "bool"
                             elif f.bit_width <= 8:
@@ -144,15 +151,15 @@ class Microcontroller:
             output_file.write(f"{INDENT}.data : {{\n")
             output_file.write(f"{INDENT}{INDENT}*(.data)\n")
             output_file.write(f"{INDENT}{INDENT}*(.data*)\n")
-            output_file.write(f"}} > {nvm} AT> {ram} \n")
-            output_file.write("_ld_data_start = ADDR(.data);\n")
-            output_file.write("_ld_data_nvm_start = LOADADDR(.data);\n")
-            output_file.write("_ld_data_size = SIZEOF(.data);\n")
+            output_file.write(f"{INDENT}}} > {ram} AT> {nvm} \n")
+            output_file.write(f"{INDENT}_ld_data_start = ADDR(.data);\n")
+            output_file.write(f"{INDENT}_ld_data_nvm_start = LOADADDR(.data);\n")
+            output_file.write(f"{INDENT}_ld_data_size = SIZEOF(.data);\n")
 
             output_file.write(f"{INDENT}.bss : {{\n")
             output_file.write(f"{INDENT}{INDENT}*(.bss);\n")
             output_file.write(f"{INDENT}{INDENT}*(.bss*);\n")
-            output_file.write(f"}} > {ram} \n")
+            output_file.write(f"{INDENT}}} > {ram} \n")
             output_file.write("_ld_bss_start = ADDR(.bss);\n")
             output_file.write("_ld_bss_size = SIZEOF(.bss);\n")
 
@@ -205,6 +212,7 @@ class Microcontroller:
 
         with output_file.open("w") as output_file:
             output_file.write(f"#include \"{header_filename}\"\n\n")
+            output_file.write("#include <stddef.h>\n\n")
 
             output_file.write("__attribute__((section(\".vector_table\"),used)) void (*const vector_table[])(void) = {\n")
             output_file.write(f"{INDENT}(void (*)(void)) &_ld_ram_end,\n")
@@ -226,12 +234,12 @@ class Microcontroller:
             output_file.write(f"{INDENT}// Copy data from flash to RAM\n")
             output_file.write(f"{INDENT}uint32_t* src = &_ld_data_nvm_start;\n")
             output_file.write(f"{INDENT}uint32_t* dest = &_ld_data_start;\n")
-            output_file.write(f"{INDENT}for (uint32_t i = 0; i < _ld_data_size / 4; i++) {{\n")
+            output_file.write(f"{INDENT}for (uint32_t i = 0; i < (size_t) &_ld_data_size / 4; i++) {{\n")
             output_file.write(f"{INDENT}{INDENT}*dest++ = *src++;\n")
             output_file.write(f"{INDENT}}}\n")
             output_file.write(f"{INDENT}// Zero out bss\n")
             output_file.write(f"{INDENT}dest = &_ld_bss_start;\n")
-            output_file.write(f"{INDENT}for (uint32_t i = 0; i < _ld_bss_size / 4; i++) {{\n")
+            output_file.write(f"{INDENT}for (uint32_t i = 0; i < (size_t) &_ld_bss_size / 4; i++) {{\n")
             output_file.write(f"{INDENT}{INDENT}*dest++ = 0;\n")
             output_file.write(f"{INDENT}}}\n")
             output_file.write(f"{INDENT}// Call {first_function}\n")
