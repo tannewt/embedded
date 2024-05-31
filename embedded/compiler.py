@@ -47,4 +47,4 @@ class Clang(Compiler):
             link_flags.append("-Wl,-Map=" + str(output_file.with_suffix(".elf.map").relative_to(caller_directory)))
         if gc_sections:
             link_flags.append("-Wl,--gc-sections")
-        await build.run_command([self.c_compiler, *cpu_flags, *link_flags, *flags, *objects, "-T", linker_script, "-o", output_file], description=f"Link {output_file.relative_to(cwd)}", working_directory=caller_directory)
+        await build.run_command([self.c_compiler, *cpu_flags, *link_flags, *flags, *objects, "-fuse-ld=lld", "-T", linker_script, "-o", output_file], description=f"Link {output_file.relative_to(cwd)}", working_directory=caller_directory)

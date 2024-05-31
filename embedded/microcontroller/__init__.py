@@ -1,3 +1,4 @@
+import collections.abc
 import logging
 from embedded import build
 from lxml import etree
@@ -126,8 +127,10 @@ class Microcontroller:
                 output_file.write(f"{INDENT}{name} ({attrs}) : ORIGIN = 0x{start:08x}, LENGTH = {size}\n")
             output_file.write("}\n")
 
+            output_file.write("ENTRY(Reset_Handler);\n\n")
             output_file.write("SECTIONS {\n")
             output_file.write(f"{INDENT}.text : {{\n")
+            output_file.write(f"{INDENT}{INDENT}KEEP(*(.vector_table))\n")
             output_file.write(f"{INDENT}{INDENT}*(.vector_table)\n")
             output_file.write(f"{INDENT}{INDENT}*(.text)\n")
             output_file.write(f"{INDENT}{INDENT}*(.text*)\n")
@@ -153,6 +156,86 @@ class Microcontroller:
             output_file.write("_ld_bss_start = ADDR(.bss);\n")
             output_file.write("_ld_bss_size = SIZEOF(.bss);\n")
 
+            output_file.write(f"_ld_ram_end = ORIGIN({ram}) + LENGTH({ram});\n")
+
+            output_file.write("}\n")
+
+    @build.run_in_thread
+    def generate_startup_source(self, output_file, flash_start_offset=0, first_function="main", interrupts_used={}):
+        global cmsis_cache
+        if cmsis_cache is None:
+            cmsis_cache = cmsis_packs.Cache(True, False)
+
+        device_info = cmsis_cache.index[self.part]
+        interrupts = {}
+        interrupt_name_to_value = {}
+        for p in self.device.peripherals:
+            for i in p.interrupts:
+                interrupts[i.value] = i.name
+                interrupt_name_to_value[i.name] = i.value
+
+        if isinstance(interrupts_used, collections.abc.Sequence):
+            d = {}
+            for interrupt in interrupts_used:
+                if isinstance(interrupt, str):
+                    interrupt = interrupt_name_to_value[interrupt]
+                d[interrupt] = interrupts[interrupt] + "_Handler"
+            interrupts_used = d
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        header_filename = output_file.with_suffix(".h")
+        with header_filename.open("w") as header_file:
+            header_file.write("#pragma once\n\n")
+            header_file.write("#include <stdint.h>\n\n")
+            header_file.write("// Where data is loaded in volatile memory (aka RAM)\n")
+            header_file.write("extern uint32_t _ld_data_start;\n")
+            header_file.write("// Where initial data values are stored in nonvolatile memory (aka flash)\n")
+            header_file.write("extern uint32_t _ld_data_nvm_start;\n")
+            header_file.write("// How large the data section is in bytes\n")
+            header_file.write("extern uint32_t _ld_data_size;\n")
+            header_file.write("// Where the bss section starts in volatile memory (aka RAM)\n")
+            header_file.write("extern uint32_t _ld_bss_start;\n")
+            header_file.write("// How large the bss section is in bytes\n")
+            header_file.write("extern uint32_t _ld_bss_size;\n")
+            header_file.write("extern uint32_t _ld_ram_end;\n")
+            header_file.write("void Reset_Handler(void);\n")
+            header_file.write("void Default_Handler(void);\n")
+            for v in interrupts_used.values():
+                header_file.write(f"void {v}(void);\n")
+            header_file.write(f"int {first_function}(void);\n")
+
+        with output_file.open("w") as output_file:
+            output_file.write(f"#include \"{header_filename}\"\n\n")
+
+            output_file.write("__attribute__((section(\".vector_table\"),used)) void (*const vector_table[])(void) = {\n")
+            output_file.write(f"{INDENT}(void (*)(void)) &_ld_ram_end,\n")
+            output_file.write(f"{INDENT}Reset_Handler,\n")
+            for i in range(2, 16):
+                name = self.cpu.interrupts.get(i - 16, "Reserved")
+                output_file.write(f"{INDENT}Default_Handler, // {i - 16} {name}\n")
+            for i in range(self.cpu.interrupt_count):
+                name = interrupts.get(i, f"IRQ{i}")
+                handler = interrupts_used.get(i, "Default_Handler")
+                output_file.write(f"{INDENT}{handler}, // {i} {name}\n")
+            output_file.write("};\n")
+
+            output_file.write("void Default_Handler(void) {\n")
+            output_file.write(f"{INDENT}while (1) {{}}\n")
+            output_file.write("}\n\n")
+
+            output_file.write("void Reset_Handler(void) {\n")
+            output_file.write(f"{INDENT}// Copy data from flash to RAM\n")
+            output_file.write(f"{INDENT}uint32_t* src = &_ld_data_nvm_start;\n")
+            output_file.write(f"{INDENT}uint32_t* dest = &_ld_data_start;\n")
+            output_file.write(f"{INDENT}for (uint32_t i = 0; i < _ld_data_size / 4; i++) {{\n")
+            output_file.write(f"{INDENT}{INDENT}*dest++ = *src++;\n")
+            output_file.write(f"{INDENT}}}\n")
+            output_file.write(f"{INDENT}// Zero out bss\n")
+            output_file.write(f"{INDENT}dest = &_ld_bss_start;\n")
+            output_file.write(f"{INDENT}for (uint32_t i = 0; i < _ld_bss_size / 4; i++) {{\n")
+            output_file.write(f"{INDENT}{INDENT}*dest++ = 0;\n")
+            output_file.write(f"{INDENT}}}\n")
+            output_file.write(f"{INDENT}// Call {first_function}\n")
+            output_file.write(f"{INDENT}{first_function}();\n")
             output_file.write("}\n")
 
     def __str__(self):

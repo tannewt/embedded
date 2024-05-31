@@ -49,6 +49,14 @@ class CortexM0Plus(ARM):
             small_multiply = ".small-multiply"
         else:
             small_multiply = ""
+        self.interrupts = {
+            -1: "SysTick",
+            -2: "PendSV",
+            -5: "SVCall",
+            -13: "HardFault",
+            -14: "NMI",
+        }
+        self.interrupt_count = 32
         super().__init__("cortex-m0plus" + small_multiply, False)
 
 class CortexM4(ARM):
