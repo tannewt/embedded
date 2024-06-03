@@ -43,10 +43,11 @@ class Microcontroller:
                 registers = []
                 raw_registers = []
                 register_offset = 0
-                for r in peripheral.registers:
+                sorted_registers = sorted(peripheral.registers, key=lambda x: x.address_offset)
+                for r in sorted_registers:
                     while register_offset < r.address_offset:
-                        registers.append(f"{INDENT}uint32_t reserved_{register_offset};\n")
-                        raw_registers.append(f"{INDENT}uint32_t reserved_{register_offset};\n")
+                        registers.append(f"{INDENT}uint32_t reserved_0x{register_offset:x};\n\n")
+                        raw_registers.append(f"{INDENT}uint32_t reserved_0x{register_offset:x};\n\n")
                         register_offset += 4
                     
                     r_description = r.description
@@ -54,13 +55,13 @@ class Microcontroller:
                         r_description = " ".join([x.strip() for x in r_description.split("\n")])
                     fields = list(r.fields)
                     reg_comment = (f"{INDENT}// {r_description}\n{INDENT}//\n",
-                                   f"{INDENT}// Address offset: {r.address_offset} Size: {r.size} bits\n")
+                                   f"{INDENT}// Address offset: 0x{r.address_offset:x} Size: {r.size} bits\n")
                     registers.extend(reg_comment)
                     raw_registers.extend(reg_comment)
                     register_offset += r.size // 8 + (1 if r.size % 8 else 0)
                     if len(fields) == 1 and fields[0].bit_offset == 0 and fields[0].bit_width == r.size:
-                        registers.append(f"{INDENT}uint32_t {r.name};\n\n")
-                        raw_registers.append(f"{INDENT}uint32_t {r.name};\n\n")
+                        registers.append(f"{INDENT}volatile uint32_t {r.name};\n\n")
+                        raw_registers.append(f"{INDENT}volatile uint32_t {r.name};\n\n")
                     else:
                         field_offset = 1
                         output.write(f"// {r_description}\n")
@@ -81,9 +82,12 @@ class Microcontroller:
                             else:
                                 field_type = "int"
                             output.write(f"{INDENT}{field_type} {f.name}: {f.bit_width}; // {f.bit_offset} {description}\n")
-                        output.write(f"}} {peripheral.group_name}_{r.name}_Type;\n\n")
-                        registers.append(f"{INDENT}{peripheral.group_name}_{r.name}_Type {r.name};\n\n")
-                        raw_registers.append(f"{INDENT}uint32_t {r.name};\n\n")
+                        if field_offset < r.size:
+                            output.write(f"{INDENT}int reserved_{field_offset}: {r.size - field_offset};\n")
+                        output.write(f"}} {peripheral.group_name}_{r.name}_Type;\n")
+                        output.write(f"_Static_assert(sizeof({peripheral.group_name}_{r.name}_Type) == {r.size // 8}, \"Size of {peripheral.group_name}_{r.name}_Type does not match register size\");\n\n")
+                        registers.append(f"{INDENT}volatile {peripheral.group_name}_{r.name}_Type {r.name};\n\n")
+                        raw_registers.append(f"{INDENT}volatile uint32_t {r.name};\n\n")
                 output.write(f"typedef struct _{peripheral.group_name}_Type {{\n")
                 for r in registers:
                     output.write(r)
